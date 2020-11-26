@@ -9,8 +9,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"agent-getway-service/model"
-	"iptv-agentd/utils"
+	"github.com/headend/agent-gateway-service/model"
+	"github.com/headend/iptv-agentd/utils"
 )
 
 
