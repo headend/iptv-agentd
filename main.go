@@ -2,27 +2,17 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/headend/share-module/curl-http"
+	"github.com/headend/share-module/file-and-directory"
+	share_model "github.com/headend/share-module/model"
 	"github.com/zhouhui8915/go-socket.io-client"
 	"log"
 	"os"
 	"os/exec"
-	"github.com/headend/agent-gateway-service/model"
-	"github.com/headend/iptv-agentd/utils"
 )
 
-
-func Shellout(shell string,command string) (error, string, string) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd := exec.Command(shell, "-c", command)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return err, stdout.String(), stderr.String()
-}
 
 func main() {
 
@@ -48,23 +38,32 @@ func main() {
 	})
 	client.On("file", func(msg string) {
 		log.Printf("recieve the file: %v\n", msg)
-		var fileInfoToRecieve model.WorkerUpdateSignal
+		var fileInfoToRecieve share_model.WorkerUpdateSignal
 		err := json.Unmarshal([]byte(msg), &fileInfoToRecieve)
 		if err != nil{
 			print(err)
 		}
 		fmt.Printf("\n\n json object:::: %#v", fileInfoToRecieve)
 		url := "http://127.0.0.1:8000/" + fileInfoToRecieve.FilePath
-		utils.DownloadFile(url, fileInfoToRecieve.FilePath)
+		curl_http.DownloadFile(url, fileInfoToRecieve.FilePath)
+		md5String, err := file_and_directory.GetMd5FromFile(fileInfoToRecieve.FilePath)
+		if err != nil {
+			print(err)
+		}
+		// compare md5
+		if md5String == fileInfoToRecieve.Md5 {
+			print("file ok")
+		} else {
+			print("file not ok")
+			fmt.Printf("|%v| # origin |%v|", md5String, fileInfoToRecieve.Md5)
+		}
 	})
-	client.On("ok", func() {
-		log.Printf("good\n")
-	})
+
 	client.On("message", func(msg string) {
 		log.Printf("on message:%v\n", msg)
 	})
 	client.On("disconnection", func() {
-		log.Printf("Dsconnect from server\nGoodbye!")
+		log.Printf("Disconnect from server\nGoodbye!")
 	})
 
 	reader := bufio.NewReader(os.Stdin)
@@ -88,7 +87,7 @@ func main() {
 
 		client.Emit("notice", string(stdout))
 		log.Printf("send message:%v\n", string(stdout))
-		// xu l
+		// xu lý
 		// call goi sang master
 	}
 }
