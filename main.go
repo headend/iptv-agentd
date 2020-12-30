@@ -1,24 +1,28 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/headend/share-module/curl-http"
-	"github.com/headend/share-module/file-and-directory"
-	share_model "github.com/headend/share-module/model"
+	socketio "github.com/googollee/go-socket.io"
+	"github.com/headend/iptv-agentd/master"
 	"github.com/headend/share-module/configuration"
+	"github.com/headend/share-module/configuration/socket-event"
 	"github.com/headend/share-module/configuration/static-config"
-
+	file_and_directory "github.com/headend/share-module/file-and-directory"
+	"github.com/headend/share-module/model"
+	agentModel "github.com/headend/share-module/model/agentd"
+	"github.com/headend/share-module/shellout"
 	"github.com/zhouhui8915/go-socket.io-client"
 	"log"
-	"os"
-	"os/exec"
+	"strconv"
+	"sync"
+	"syscall"
+	"time"
 )
 
 
 func main() {
-
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	// load config
 	var conf  configuration.Conf
 	conf.LoadConf()
@@ -46,7 +50,7 @@ func main() {
 	}
 	// make authen params
 	opts := &socketio_client.Options{
-		Transport: "websocket",
+		Transport: static_config.GatewayTransportProtocol,
 		Query:     make(map[string]string),
 	}
 	opts.Query["user"] = static_config.GatewayUser
@@ -54,76 +58,162 @@ func main() {
 	var gatewayUrl string
 	gatewayUrl = fmt.Sprintf("http://%s:%d/", gwHost, gwPort)
 	//gatewayUrl = "http://" + gwHost + ":" + string(gwPort) + "/"
-	println(gatewayUrl)
 	var uri string
 	uri = gatewayUrl+ "socket.io/"
+	//make channel control
+	chDestroyMaster := make(chan bool)
+	chDestroyInternalSocket := make(chan bool)
+	var client *socketio_client.Client
+	var err error
 
-	client, err := socketio_client.NewClient(uri, opts)
+	// make socket
+	server, err := socketio.NewServer(nil)
 	if err != nil {
-		log.Printf("NewClient error:%v\n", err)
+		log.Fatal(err)
 		return
 	}
-
-	client.On("error", func() {
-		log.Printf("on error\n")
-	})
-	client.On("connection", func(msg string) {
-		log.Printf("Connected whith message: %v\n", msg)
-	})
-	client.On("file", func(msg string) {
-		log.Printf("recieve the file: %v\n", msg)
-		var fileInfoToRecieve share_model.WorkerUpdateSignal
-		err := json.Unmarshal([]byte(msg), &fileInfoToRecieve)
-		if err != nil{
-			print(err)
-		}
-		fmt.Printf("\n\n json object:::: %#v", fileInfoToRecieve)
-		url := gatewayUrl + fileInfoToRecieve.FilePath
-		curl_http.DownloadFile(url, fileInfoToRecieve.FilePath)
-		md5String, err := file_and_directory.GetMd5FromFile(fileInfoToRecieve.FilePath)
-		if err != nil {
-			print(err)
-		}
-		// compare md5
-		if md5String == fileInfoToRecieve.Md5 {
-			print("file ok")
-			client.Emit("notice", "file ok")
-		} else {
-			print("file not ok")
-			msg := fmt.Sprint("|%v| # origin |%v|", md5String, fileInfoToRecieve.Md5)
-			client.Emit("notice", msg)
-		}
-	})
-
-	client.On("message", func(msg string) {
-		log.Printf("on message:%v\n", msg)
-	})
-	client.On("disconnection", func() {
-		log.Printf("Disconnect from server\nGoodbye!")
-	})
-
-	reader := bufio.NewReader(os.Stdin)
+	// connect to gateway
 	for {
-		data, _, _ := reader.ReadLine()
-		command := string(data)
-		app := "echo"
+		select {
+		case <-chDestroyMaster:
+			log.Println("[Agentd] Reconnect...")
+			time.Sleep(10 * time.Second)
+			continue
+		default:
+			var wg sync.WaitGroup
+			wg.Add(1)
+			client, err = socketio_client.NewClient(uri, opts)
+			if err != nil {
+				log.Printf("[Agentd] NewClient error:%v\n", err)
+				log.Println("[Agentd] Reconnect...")
+				wg.Done()
+				time.Sleep(10 * time.Second)
+				continue
+			}
 
-		arg0 := "-e"
-		arg1 := "1"
-		arg2 := command
+			client.On(socket_event.Loi, func() {
+				log.Printf("[Agentd] on error\n")
+			})
+			client.On(socket_event.KetNoi, func(msg string) {
+				log.Printf("[Agentd] Connected whith message: %v\n", msg)
 
+			})
+			client.On(socket_event.NhanFile, func(msg string) {
+				master.MasterReceiveFile(msg, gatewayUrl, client)
+			})
 
-		cmd := exec.Command(app, arg0, arg1, arg2)
-		stdout, err := cmd.Output()
+			client.On(socket_event.TinNhan, func(msg string) {
+				log.Printf("[Agentd] on message:%v\n", msg)
+			})
+			client.On(socket_event.NgatKetNoi, func() {
+				log.Printf("[Agentd] Disconnect from server")
+				chDestroyInternalSocket <- true
+				chDestroyMaster <- true
+				wg.Done()
+			})
 
-		if err != nil {
-			print(err.Error())
-			return
+			client.On(socket_event.ThucThiLenh, func(msg string) {
+				master.OnExecuteRequestHandle(msg, client, server)
+			})
+			client.On(socket_event.DieuKhien, func(msg string) {
+				log.Println(msg)
+				var ctlRequestData *model.AgentCTLQueueRequest
+				json.Unmarshal([]byte(msg), &ctlRequestData)
+				go func() {
+					var runThread int
+					if ctlRequestData.RunThread != 0 {
+						runThread = ctlRequestData.RunThread
+					} else {
+						runThread = 1
+					}
+					runThreadString := fmt.Sprintf("%d", runThread)
+					switch ctlRequestData.ControlType {
+					case static_config.StartMonitorSignal:
+						log.Println("[Agentd] run signal worker")
+						appToRUn := fmt.Sprintf("%s/iptv-agentd", static_config.BinaryPath)
+						err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "signal", "-n", runThreadString}, 0)
+						log.Printf("err: %s", err.Error())
+						log.Printf("exitCode: %d", exitCode)
+						log.Printf("stdout: %s", stdout)
+						log.Printf("stderr: %s", stderr)
+					case static_config.StartMonitorVideo:
+						log.Println("[Agentd] run signal worker")
+						appToRUn := fmt.Sprintf("%s/iptv-agentd", static_config.BinaryPath)
+						err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "video", "-n", runThreadString}, 0)
+						log.Printf("err: %s", err.Error())
+						log.Printf("exitCode: %d", exitCode)
+						log.Printf("stdout: %s", stdout)
+						log.Printf("stderr: %s", stderr)
+					case static_config.StartMonitorAudio:
+						log.Println("[Agentd] run signal worker")
+						appToRUn := fmt.Sprintf("%s/iptv-agentd", static_config.BinaryPath)
+						err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "audio", "-n", runThreadString}, 0)
+						log.Printf("err: %s", err.Error())
+						log.Printf("exitCode: %d", exitCode)
+						log.Printf("stdout: %s", stdout)
+						log.Printf("stderr: %s", stderr)
+					case static_config.StopMonitorSignal:
+						pidFilePath := fmt.Sprintf("%s/run/signal.pid", static_config.InstallationPath)
+						var pidFile file_and_directory.MyFile
+						pidFile.Path = pidFilePath
+						pidString,_ := pidFile.Read()
+						pid, _ := strconv.Atoi(pidString)
+						err = syscall.Kill(pid, 15)
+						if err != nil {
+							log.Println("Success stop signal monitor")
+						}
+					case static_config.StopMonitorVideo:
+						pidFilePath := fmt.Sprintf("%s/run/video.pid", static_config.InstallationPath)
+						var pidFile file_and_directory.MyFile
+						pidFile.Path = pidFilePath
+						pidString,_ := pidFile.Read()
+						pid, _ := strconv.Atoi(pidString)
+						err = syscall.Kill(pid, 15)
+						if err != nil {
+							log.Println("Success stop video monitor")
+						}
+					case static_config.StopMonitorAudio:
+						pidFilePath := fmt.Sprintf("%s/run/audio.pid", static_config.InstallationPath)
+						var pidFile file_and_directory.MyFile
+						pidFile.Path = pidFilePath
+						pidString,_ := pidFile.Read()
+						pid, _ := strconv.Atoi(pidString)
+						err = syscall.Kill(pid, 15)
+						if err != nil {
+							log.Println("Success stop audio monitor")
+						}
+					default:
+						log.Println("Not support")
+					}
+				}()
+
+			})
+
+			client.On("profile-monitor-response", func(msg string) {
+
+				// Transfer message to worker
+				var data agentModel.MonitorInputForAgent
+				data.LoadFromJsonString(msg)
+				switch data.MonitorType {
+				case static_config.Video:
+					server.BroadcastToRoom("/", "video", "profile-monitor-response", msg)
+				case static_config.Audio:
+					server.BroadcastToRoom("/", "audio", "profile-monitor-response", msg)
+				case static_config.Signal:
+					server.BroadcastToRoom("/", "signal", "profile-monitor-response", msg)
+				default:
+					server.BroadcastToRoom("/", socket_event.NhomChung, "profile-monitor-response", msg)
+				}
+
+			})
+			// Then register socket to listen from worker
+			log.Println("[Agentd] Start internal socket")
+			master.RegisterMasterSocket(client, server, conf, &chDestroyInternalSocket)
+			log.Println("Wait event from client")
+			wg.Wait()
 		}
-
-		client.Emit("notice", string(stdout))
-		log.Printf("send message:%v\n", string(stdout))
-		// xu lý
-		// call goi sang master
 	}
+	log.Println("Goodbye!")
 }
+
+
