@@ -2,36 +2,31 @@ package master
 
 import (
 	"fmt"
-	"github.com/googollee/go-socket.io"
+	socketio "github.com/googollee/go-socket.io"
 	master_event_handle "github.com/headend/iptv-agentd/master/event-handle"
 	self_utils "github.com/headend/iptv-agentd/utils"
 	"github.com/headend/share-module/configuration"
 	socket_event "github.com/headend/share-module/configuration/socket-event"
-	socketio_client "github.com/zhouhui8915/go-socket.io-client"
-	"github.com/headend/share-module/configuration/static-config"
+	static_config "github.com/headend/share-module/configuration/static-config"
 	"log"
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 )
 
-
-func RegisterMasterSocket(gwClient *socketio_client.Client, masterSocket *socketio.Server, conf configuration.Conf, chDestroyInternalSocker *chan bool) {
+func RegisterMasterSocket(wg *sync.WaitGroup, conf configuration.Conf, profileRequestChan chan string, profileChangeChan chan string, profileReceiveChan chan string, profileSignalReceiveChan chan string, profileVideoReceiveChan chan string, profileAudioReceiveChan chan string) {
+	exitMasterChan := make(chan bool)
+	masterSocket, err := socketio.NewServer(nil)
+	if err != nil {
+		log.Print(err)
+		wg.Done()
+		wg.Done()
+		return
+	}
 	gwHost, gwPort := self_utils.GetMasterConnectionInfo(conf)
 	masterSocket.OnConnect("/", func(s socketio.Conn) error {
 		return master_event_handle.ListenConnection(s, masterSocket)
-	})
-
-	masterSocket.OnEvent("/", socket_event.ThongBao, func(s socketio.Conn, msg string) {
-		master_event_handle.OnNotice(s, msg)
-	})
-
-	masterSocket.OnEvent(socket_event.NhanLog, socket_event.NhanLog, func(s socketio.Conn, msg string) string {
-		return master_event_handle.OnLog(s, msg)
-	})
-	masterSocket.OnEvent("/", socket_event.KetQuaThucThiLenh, func(s socketio.Conn, msg string) {
-		content := fmt.Sprintf("On %s result: %s", s.RemoteAddr(), msg)
-		log.Printf("Delivery message to gateway: %s", content)
-		gwClient.Emit(socket_event.KetQuaThucThiLenh, content)
 	})
 
 	masterSocket.OnEvent("/", "bye", func(s socketio.Conn) string {
@@ -39,10 +34,6 @@ func RegisterMasterSocket(gwClient *socketio_client.Client, masterSocket *socket
 		s.Emit("bye", last)
 		s.Close()
 		return last
-	})
-
-	masterSocket.OnEvent("/", socket_event.DieuKhien, func(s socketio.Conn, signal int) {
-		masterSocket.BroadcastToRoom("/", socket_event.NhomChung, socket_event.DieuKhien, signal)
 	})
 
 	masterSocket.OnError("/", func(s socketio.Conn, e error) {
@@ -59,40 +50,55 @@ func RegisterMasterSocket(gwClient *socketio_client.Client, masterSocket *socket
 		if err != nil {
 			log.Printf("[Master] critical error: %s\n", err.Error())
 		}
+		var romName string
 		switch i {
 		case static_config.Audio:
-			masterSocket.JoinRoom("/", "audio", s)
+			romName = "audio"
 		case static_config.Video:
-			masterSocket.JoinRoom("/", "video", s)
+			romName = "video"
 		default:
-			masterSocket.JoinRoom("/", "signal", s)
+			romName = "signal"
 		}
-		log.Println(masterSocket.Rooms("/"))
+		masterSocket.JoinRoom("/", romName, s)
+		log.Printf("Success to join client %s to rom %s", s.LocalAddr().String(), romName)
 	})
 
 	masterSocket.OnEvent("/", "profile-monitor-request", func(s socketio.Conn, msg string) {
+		log.Printf("[Master] %s\n", msg)
 		// Formard message to gateway
-		log.Printf("[Master] Receive request monitor type: %s\n", msg)
-		err := gwClient.Emit("profile-monitor-request", msg)
-		if err != nil {
-			log.Printf("[Master] critical error: %s\n", err.Error())
-		}
+		profileRequestChan <- msg
 	})
 
 	masterSocket.OnEvent("/", "monitor-response", func(s socketio.Conn, msg string) {
-		log.Println(msg)
-		err := gwClient.Emit("monitor-response", msg)
-		if err != nil {
-			log.Printf("[Master] critical error: %s\n", err.Error())
-		}
+		log.Printf("[Master] %s\n", msg)
+		profileChangeChan <- msg
 	})
 
-	masterSocket.OnEvent("/", "monitor-response", func(s socketio.Conn, msg string) {
-		err := gwClient.Emit("monitor-response", msg)
-		if err != nil {
-			log.Printf("[Master] critical error: %s\n", err.Error())
+	go func() {
+		for {
+			select {
+			case <-exitMasterChan:
+				log.Println("[Mater] Interrupt master socket")
+				return
+			case profileReceiveMsg := <-profileReceiveChan:
+				log.Println("[Master] send to all worker")
+				masterSocket.BroadcastToRoom("/", socket_event.NhomChung, "profile-monitor-response", profileReceiveMsg)
+			case profileReceiveMsg := <-profileSignalReceiveChan:
+				log.Println("[Master] send to signal worker")
+				masterSocket.BroadcastToRoom("/", "signal", "profile-monitor-response", profileReceiveMsg)
+				log.Print(profileReceiveMsg)
+				//log.Print(masterSocket.RoomLen("/", "signal"))
+			case profileReceiveMsg := <-profileVideoReceiveChan:
+				log.Println("[Master] send to video worker")
+				masterSocket.BroadcastToRoom("/", "video", "profile-monitor-response", profileReceiveMsg)
+			case profileReceiveMsg := <-profileAudioReceiveChan:
+				log.Println("[Master] send to audio worker")
+				masterSocket.BroadcastToRoom("/", "audio", "profile-monitor-response", profileReceiveMsg)
+			default:
+				time.Sleep(1 * time.Second)
+			}
 		}
-	})
+	}()
 
 	go masterSocket.Serve()
 	defer masterSocket.Close()
@@ -105,5 +111,3 @@ func RegisterMasterSocket(gwClient *socketio_client.Client, masterSocket *socket
 	// runserver here
 	log.Fatal(http.ListenAndServe(listenAddress, nil))
 }
-
-
