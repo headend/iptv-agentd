@@ -63,13 +63,13 @@ func RegisterMasterSocket(wg *sync.WaitGroup, conf configuration.Conf, profileRe
 		log.Printf("Success to join client %s to rom %s", s.LocalAddr().String(), romName)
 	})
 
-	masterSocket.OnEvent("/", "profile-monitor-request", func(s socketio.Conn, msg string) {
+	masterSocket.OnEvent("/", socket_event.ProfileRequest, func(s socketio.Conn, msg string) {
 		log.Printf("[Master] %s\n", msg)
 		// Formard message to gateway
 		profileRequestChan <- msg
 	})
 
-	masterSocket.OnEvent("/", "monitor-response", func(s socketio.Conn, msg string) {
+	masterSocket.OnEvent("/", socket_event.MonitorResponse, func(s socketio.Conn, msg string) {
 		log.Printf("[Master] %s\n", msg)
 		profileChangeChan <- msg
 	})
@@ -82,18 +82,18 @@ func RegisterMasterSocket(wg *sync.WaitGroup, conf configuration.Conf, profileRe
 				return
 			case profileReceiveMsg := <-profileReceiveChan:
 				log.Println("[Master] send to all worker")
-				masterSocket.BroadcastToRoom("/", socket_event.NhomChung, "profile-monitor-response", profileReceiveMsg)
+				masterSocket.BroadcastToRoom("/", socket_event.NhomChung, socket_event.ProfileResponse, profileReceiveMsg)
 			case profileReceiveMsg := <-profileSignalReceiveChan:
 				log.Println("[Master] send to signal worker")
-				masterSocket.BroadcastToRoom("/", "signal", "profile-monitor-response", profileReceiveMsg)
+				masterSocket.BroadcastToRoom("/", "signal", socket_event.ProfileResponse, profileReceiveMsg)
 				log.Print(profileReceiveMsg)
 				//log.Print(masterSocket.RoomLen("/", "signal"))
 			case profileReceiveMsg := <-profileVideoReceiveChan:
 				log.Println("[Master] send to video worker")
-				masterSocket.BroadcastToRoom("/", "video", "profile-monitor-response", profileReceiveMsg)
+				masterSocket.BroadcastToRoom("/", "video", socket_event.ProfileResponse, profileReceiveMsg)
 			case profileReceiveMsg := <-profileAudioReceiveChan:
 				log.Println("[Master] send to audio worker")
-				masterSocket.BroadcastToRoom("/", "audio", "profile-monitor-response", profileReceiveMsg)
+				masterSocket.BroadcastToRoom("/", "audio", socket_event.ProfileResponse, profileReceiveMsg)
 			default:
 				time.Sleep(1 * time.Second)
 			}

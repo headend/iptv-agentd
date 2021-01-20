@@ -31,82 +31,117 @@ func ControlWorkerHandle(exitControlChan chan bool, controlChan chan string) {
 					runThread = 1
 				}
 				runThreadString := fmt.Sprintf("%d", runThread)
+				appToRUn := static_config.AgentdWorkerPath
 				switch ctlRequestData.ControlType {
+				case static_config.UpdateWorker:
+					StopSignal()
+					StopVideo()
+					StopAudio()
 				case static_config.StartMonitorSignal:
 					log.Println("[Agentd] Recieve run signal worker")
-					// check process running
-					pidPathFile := fmt.Sprintf("%s/run/signal.pid", static_config.InstallationPath)
-					if self_utils.IsWorkerRunning(pidPathFile) {
-						log.Println("Worker already run")
+					if StartSignal(appToRUn, runThreadString) {
 						return
 					}
-					log.Println("[Agentd] start signal worker")
-					appToRUn := fmt.Sprintf("%s/iptv-agentd", static_config.BinaryPath)
-					err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "signal", "-n", runThreadString}, 0)
-					log.Printf("err: %s", err.Error())
-					log.Printf("exitCode: %d", exitCode)
-					log.Printf("stdout: %s", stdout)
-					log.Printf("stderr: %s", stderr)
 				case static_config.StartMonitorVideo:
 					log.Println("[Agentd] run signal worker")
-					pidPathFile := fmt.Sprintf("%s/run/video.pid", static_config.InstallationPath)
-					if self_utils.IsWorkerRunning(pidPathFile) {
+					if StartVideo(appToRUn, runThreadString) {
 						return
 					}
-					appToRUn := fmt.Sprintf("%s/iptv-agentd", static_config.BinaryPath)
-					err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "video", "-n", runThreadString}, 0)
-					log.Printf("err: %s", err.Error())
-					log.Printf("exitCode: %d", exitCode)
-					log.Printf("stdout: %s", stdout)
-					log.Printf("stderr: %s", stderr)
 				case static_config.StartMonitorAudio:
 					log.Println("[Agentd] run signal worker")
-					pidPathFile := fmt.Sprintf("%s/run/audio.pid", static_config.InstallationPath)
-					if self_utils.IsWorkerRunning(pidPathFile) {
+					if StartAudio(appToRUn, runThreadString) {
 						return
 					}
-					appToRUn := fmt.Sprintf("%s/iptv-agentd", static_config.BinaryPath)
-					err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "audio", "-n", runThreadString}, 0)
-					log.Printf("err: %s", err.Error())
-					log.Printf("exitCode: %d", exitCode)
-					log.Printf("stdout: %s", stdout)
-					log.Printf("stderr: %s", stderr)
 				case static_config.StopMonitorSignal:
-					pidFilePath := fmt.Sprintf("%s/run/signal.pid", static_config.InstallationPath)
-					var pidFile file_and_directory.MyFile
-					pidFile.Path = pidFilePath
-					pidString, _ := pidFile.Read()
-					pid, _ := strconv.Atoi(pidString)
-					err := syscall.Kill(pid, 15)
-					if err != nil {
-						log.Println("Success stop signal monitor")
-					}
+					StopSignal()
 				case static_config.StopMonitorVideo:
-					pidFilePath := fmt.Sprintf("%s/run/video.pid", static_config.InstallationPath)
-					var pidFile file_and_directory.MyFile
-					pidFile.Path = pidFilePath
-					pidString, _ := pidFile.Read()
-					pid, _ := strconv.Atoi(pidString)
-					err := syscall.Kill(pid, 15)
-					if err != nil {
-						log.Println("Success stop video monitor")
-					}
+					StopVideo()
 				case static_config.StopMonitorAudio:
-					pidFilePath := fmt.Sprintf("%s/run/audio.pid", static_config.InstallationPath)
-					var pidFile file_and_directory.MyFile
-					pidFile.Path = pidFilePath
-					pidString, _ := pidFile.Read()
-					pid, _ := strconv.Atoi(pidString)
-					err := syscall.Kill(pid, 15)
-					if err != nil {
-						log.Println("Success stop audio monitor")
-					}
+					StopAudio()
 				default:
-					log.Println("Not support")
+					log.Printf("Not support control type: %d", ctlRequestData.ControlType)
 				}
 			}()
 		default:
 			time.Sleep(1 * time.Second)
 		}
 	}
+}
+
+func StopAudio() {
+	pidFilePath := static_config.WorkerAudioPid
+	var pidFile file_and_directory.MyFile
+	pidFile.Path = pidFilePath
+	pidString, _ := pidFile.Read()
+	pid, _ := strconv.Atoi(pidString)
+	err := syscall.Kill(pid, 15)
+	if err != nil {
+		log.Println("Success stop audio monitor")
+	}
+}
+
+func StopSignal() {
+	pidFilePath := static_config.WorkerSignalPid
+	var pidFile file_and_directory.MyFile
+	pidFile.Path = pidFilePath
+	pidString, _ := pidFile.Read()
+	pid, _ := strconv.Atoi(pidString)
+	err := syscall.Kill(pid, 15)
+	if err != nil {
+		log.Println("Success stop signal monitor")
+	}
+}
+
+func StopVideo() {
+	pidFilePath := static_config.WorkerVideoPid
+	var pidFile file_and_directory.MyFile
+	pidFile.Path = pidFilePath
+	pidString, _ := pidFile.Read()
+	pid, _ := strconv.Atoi(pidString)
+	err := syscall.Kill(pid, 15)
+	if err != nil {
+		log.Println("Success stop video monitor")
+	}
+}
+
+func StartAudio(appToRUn string, runThreadString string) bool {
+	pidPathFile := static_config.WorkerAudioPid
+	if self_utils.IsWorkerRunning(pidPathFile) {
+		return true
+	}
+	err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "audio", "-n", runThreadString}, 0)
+	log.Printf("err: %s", err.Error())
+	log.Printf("exitCode: %d", exitCode)
+	log.Printf("stdout: %s", stdout)
+	log.Printf("stderr: %s", stderr)
+	return false
+}
+
+func StartVideo(appToRUn string, runThreadString string) bool {
+	pidPathFile := static_config.WorkerVideoPid
+	if self_utils.IsWorkerRunning(pidPathFile) {
+		return true
+	}
+	err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "video", "-n", runThreadString}, 0)
+	log.Printf("err: %s", err.Error())
+	log.Printf("exitCode: %d", exitCode)
+	log.Printf("stdout: %s", stdout)
+	log.Printf("stderr: %s", stderr)
+	return false
+}
+
+func StartSignal(appToRUn string, runThreadString string) bool {
+	// check process running
+	pidPathFile := static_config.WorkerSignalPid
+	if self_utils.IsWorkerRunning(pidPathFile) {
+		log.Println("Worker already run")
+		return true
+	}
+	log.Println("[Agentd] start signal worker")
+	err, exitCode, stdout, stderr := shellout.RunExternalCmd(appToRUn, []string{"-m", "daemon", "-t", "signal", "-n", runThreadString}, 0)
+	log.Printf("err: %s", err.Error())
+	log.Printf("exitCode: %d", exitCode)
+	log.Printf("stdout: %s", stdout)
+	log.Printf("stderr: %s", stderr)
+	return false
 }

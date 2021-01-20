@@ -20,6 +20,8 @@ import (
 	"log"
 )
 
+const version = "1.1"
+
 func main()  {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	confFilePtr := flag.String("c", static_config.ConfigFilePath, "Configure file")
@@ -27,7 +29,13 @@ func main()  {
 	sourcePtr := flag.String("s", "", "Source ip multicast (required) if urgent mode")
 	workerNumPtr := flag.String("n", "1", "Concurrency worker")
 	monitorTypePtr := flag.String("t", "signal", "monitor type: signal/video/audio")
+	versionPtr := flag.String("v", "", "Get version (anything value)")
 	flag.Parse()
+	// check version
+	if *versionPtr != "" {
+		fmt.Print(version)
+		return
+	}
 	// load config
 	var conf configuration.Conf
 	if confFilePtr != nil {
