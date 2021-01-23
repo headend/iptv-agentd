@@ -108,6 +108,7 @@ func main()  {
 				profileRequestChan,
 				profileReceiveChan,
 				profileChangeChan) {
+				time.Sleep(5*time.Second)
 				continue
 			} else {
 				log.Print("Request profile timeout")
@@ -236,7 +237,6 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 			}
 		}
 	}
-	time.Sleep(7*time.Second)
 	return false
 }
 
