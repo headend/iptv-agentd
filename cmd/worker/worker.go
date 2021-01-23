@@ -235,8 +235,8 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 				time.Sleep(3*time.Second)
 			}
 		}
-		time.Sleep(3*time.Second)
 	}
+	time.Sleep(7*time.Second)
 	return false
 }
 
