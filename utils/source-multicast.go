@@ -12,7 +12,7 @@ import (
 func CheckSourceMulticast(sourceMulticast string) (err error, sourceStatusCode int64) {
 	shell := fmt.Sprintf("%s/%s", static_config.BinaryPath, "ffprobe")
 	cmdtorun := []string{"udp://"+sourceMulticast, "-v", "quiet", "-show_format", "-show_streams", "-print_format", "json"}
-	err, _, stdOut, _ := shellout.RunExternalCmd(shell, cmdtorun, 30)
+	err, _, stdOut, _ := shellout.RunExternalCmd(shell, cmdtorun, 15)
 
 	if err != nil {
 		//log.Println(err.Error())

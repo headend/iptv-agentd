@@ -4,12 +4,14 @@ import (
 	"fmt"
 	socket_event "github.com/headend/share-module/configuration/socket-event"
 	static_config "github.com/headend/share-module/configuration/static-config"
+	curl_http "github.com/headend/share-module/curl-http"
 	"github.com/headend/share-module/model"
-	"github.com/headend/share-module/curl-http"
 	agentModel "github.com/headend/share-module/model/agentd"
 	"github.com/headend/share-module/shellout"
 	socketio_client "github.com/zhouhui8915/go-socket.io-client"
 	"log"
+	"net/url"
+	"os"
 	"time"
 )
 
@@ -84,21 +86,29 @@ func RegisterGatewayClientSocket(uri string,
 
 	client.On(socket_event.UpdateWorker, func(msg string) {
 		// Transfer message to worker
+		log.Println("Recieve update....")
 		var updateDataRequest  model.WorkerUpdateSignal
 		err := updateDataRequest.LoadFromJsonString(msg)
 		if err != nil {
 			log.Println(err)
 		} else {
 			// download file
-			url := fmt.Sprintf("%s/%s%s", uri, static_config.GatewayStorage, updateDataRequest.FileName)
-			
-			err2:=curl_http.DownloadFile(url, updateDataRequest.FilePath)
+			u, _ := url.Parse(uri)
+
+			url := fmt.Sprintf("%s://%s/%s", u.Scheme, u.Host, updateDataRequest.FileName)
+			log.Printf("Download new version to %s", updateDataRequest.FilePath + "tmp")
+			err2:=curl_http.DownloadFile(url, updateDataRequest.FilePath + "tmp")
 			if err2 != nil {
 				log.Println(err2)
+				log.Println("Resync worker...")
+				client.Emit("sync-worker", "sync worker")
 			} else {
+				_ = os.Rename(updateDataRequest.FilePath + "tmp", updateDataRequest.FilePath)
+				os.Chmod(updateDataRequest.FilePath, 0755)
 				//check file size
 				// check md5
 				// start worker
+				log.Println("Resync worker...")
 				client.Emit("sync-worker", "sync worker")
 			}
 
@@ -121,3 +131,5 @@ func RegisterGatewayClientSocket(uri string,
 	}
 	return false
 }
+
+
