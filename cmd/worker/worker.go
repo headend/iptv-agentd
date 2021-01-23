@@ -20,7 +20,7 @@ import (
 	"log"
 )
 
-const version = "1.1"
+const version = "1.3"
 
 func main()  {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -183,34 +183,34 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 				multicatsStream := fmt.Sprintf("%s:1234", profile.MulticastIP)
 				_, checkcode := self_utils.CheckSourceMulticast(multicatsStream)
 				if checkcode != profile.Status {
-					time.Sleep(5 * time.Second)
+					//time.Sleep(5 * time.Second)
 					//recheck
 					_, checkcode = self_utils.CheckSourceMulticast(multicatsStream)
-					if checkcode != profile.Status {
-						log.Println("Wait for recheck")
-						msg := fmt.Sprintf("Status has change from %d to %d\n", profile.Status, checkcode)
-						log.Println(msg)
-						var signalStatus bool
-						if checkcode == 1 {
-							signalStatus = true
-						}
-						changeStatusMessageData := model.ProfileChangeStatus{
-							MonitorType:     monitorType,
-							MonitorID:       profile.MonitorId,
-							ProfileId:       profile.ProfileId,
-							AgentId:         profile.AgentId,
-							OldStatus:       profile.Status,
-							NewStatus:       checkcode,
-							OldSignalStatus: false,
-							NewSignalStatus: signalStatus,
-							OldVideoStatus:  false,
-							NewVideoStatus:  false,
-							OldAudioStatus:  false,
-							NewAudioStatus:  false,
-							EventTime:       time.Now().Unix(),
-						}
-						changeStatusMessageSting, _ := changeStatusMessageData.GetJsonString()
-						changeChan <- changeStatusMessageSting
+					//if checkcode != profile.Status {
+					//	log.Println("Wait for recheck")
+					//	msg := fmt.Sprintf("Status has change from %d to %d\n", profile.Status, checkcode)
+					//	log.Println(msg)
+					//	var signalStatus bool
+					//	if checkcode == 1 {
+					//		signalStatus = true
+					//	}
+					changeStatusMessageData := model.ProfileChangeStatus{
+						MonitorType:     monitorType,
+						MonitorID:       profile.MonitorId,
+						ProfileId:       profile.ProfileId,
+						AgentId:         profile.AgentId,
+						OldStatus:       profile.Status,
+						NewStatus:       checkcode,
+						OldSignalStatus: false,
+						NewSignalStatus: signalStatus,
+						OldVideoStatus:  false,
+						NewVideoStatus:  false,
+						OldAudioStatus:  false,
+						NewAudioStatus:  false,
+						EventTime:       time.Now().Unix(),
+					}
+					changeStatusMessageSting, _ := changeStatusMessageData.GetJsonString()
+					changeChan <- changeStatusMessageSting
 					}
 				}
 				log.Printf("Result status: %d", checkcode)
