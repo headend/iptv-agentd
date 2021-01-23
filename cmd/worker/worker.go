@@ -190,10 +190,10 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 					//	log.Println("Wait for recheck")
 					//	msg := fmt.Sprintf("Status has change from %d to %d\n", profile.Status, checkcode)
 					//	log.Println(msg)
-					//	var signalStatus bool
-					//	if checkcode == 1 {
-					//		signalStatus = true
-					//	}
+					var signalStatus bool
+					if checkcode == 1 {
+						signalStatus = true
+					}
 					changeStatusMessageData := model.ProfileChangeStatus{
 						MonitorType:     monitorType,
 						MonitorID:       profile.MonitorId,
@@ -211,7 +211,7 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 					}
 					changeStatusMessageSting, _ := changeStatusMessageData.GetJsonString()
 					changeChan <- changeStatusMessageSting
-					}
+					//}
 				}
 				log.Printf("Result status: %d", checkcode)
 			}
