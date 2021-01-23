@@ -47,13 +47,13 @@ func main()  {
 	log.Println(threadNum)
 	moitorType, logFilePath := GetMonitorTypeAndRegisterPidFile(monitorTypePtr)
 	println(logFilePath)
-	//f, err := os.OpenFile(logFilePath, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
-	//if err != nil {
-	//	log.Fatalf("error opening file: %v", err)
-	//}
-	//defer f.Close()
-	//
-	//log.SetOutput(f)
+	f, err := os.OpenFile(logFilePath, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	defer f.Close()
+
+	log.SetOutput(f)
 
 	conf.LoadConf()
 
@@ -171,7 +171,7 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 	for  {
 		select {
 		case message := <- receiveChan:
-			fmt.Println("Monitor Received", message)
+			log.Println("Monitor Received", message)
 			var monitorProfileData model.MonitorInputForAgent
 			err := monitorProfileData.LoadFromJsonString(message)
 			if err != nil {
@@ -185,12 +185,20 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 				if checkcode != profile.Status {
 					//time.Sleep(5 * time.Second)
 					//recheck
-					_, checkcode = self_utils.CheckSourceMulticast(multicatsStream)
+					//_, checkcode = self_utils.CheckSourceMulticast(multicatsStream)
 					//if checkcode != profile.Status {
-					//	log.Println("Wait for recheck")
-					//	msg := fmt.Sprintf("Status has change from %d to %d\n", profile.Status, checkcode)
-					//	log.Println(msg)
+					//log.Println("Wait for recheck")
+					msg := fmt.Sprintf("Status has change from %d to %d\n", profile.Status, checkcode)
+					log.Println(msg)
 					var signalStatus bool
+					var audioStatus bool
+					var videoStatus bool
+					switch checkcode {
+					case 0:
+						videoStatus = false
+						audioStatus = false
+						signalStatus = false
+					}
 					if checkcode == 1 {
 						signalStatus = true
 					}
@@ -204,16 +212,16 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 						OldSignalStatus: false,
 						NewSignalStatus: signalStatus,
 						OldVideoStatus:  false,
-						NewVideoStatus:  false,
+						NewVideoStatus:  videoStatus,
 						OldAudioStatus:  false,
-						NewAudioStatus:  false,
+						NewAudioStatus:  audioStatus,
 						EventTime:       time.Now().Unix(),
 					}
 					changeStatusMessageSting, _ := changeStatusMessageData.GetJsonString()
 					changeChan <- changeStatusMessageSting
 					//}
 				}
-				log.Printf("Result status: %d", checkcode)
+				//log.Printf("Result status: %d", checkcode)
 			}
 			return true
 		default:
@@ -227,6 +235,7 @@ func IsMonitorSmooth(monitorType int, requestChan chan string, receiveChan chan 
 				time.Sleep(3*time.Second)
 			}
 		}
+		time.Sleep(3*time.Second)
 	}
 	return false
 }
