@@ -20,7 +20,7 @@ import (
 	"log"
 )
 
-const version = "1.4"
+const version = "1.5"
 
 func main()  {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
